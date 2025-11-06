@@ -1,0 +1,60 @@
+{
+  "name": "SDR-POC-desktop-app",
+  "version": "0.0.1",
+  "description": "SDR POC Desktop Application",
+  "author": "Alten",
+  "main": "dist/electron/main.js",
+  "private": true,
+  "scripts": {
+    "build:main": "tsc -p tsconfig.json",
+    "electron": "npm run build:main && electron ./dist/electron/main.js",
+    "frontend:dev": "cd frontend && npm run dev",
+    "dev": "concurrently \"cross-env NODE_ENV=development npm run electron\" \"npm run frontend:dev\"",
+    "build": "npm run build:main && cd frontend && npm run build && cd .. && electron-builder --win nsis",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "clean": "taskkill /F /IM electron.exe /T 2>nul || exit 0 && taskkill /F /IM app-builder.exe /T 2>nul || exit 0 && powershell -Command \"if (Test-Path dist_electron) { Remove-Item -Recurse -Force dist_electron } ; if (Test-Path dist) { Remove-Item -Recurse -Force dist } ; if (Test-Path frontend\\dist) { Remove-Item -Recurse -Force frontend\\dist }\""
+  },
+  "build": {
+    "appId": "com.example.SDR-POC-desktop-app",
+    "productName": "SDR POC Desktop App",
+    "forceCodeSigning": false,
+    "afterSign": false,
+    "directories": {
+      "output": "dist_electron",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "frontend/dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    }
+  },
+  "devDependencies": {
+    "@swc/core": "^1.13.5",
+    "@swc/helpers": "^0.5.17",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "concurrently": "^8.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^29.0.0",
+    "electron-builder": "^26.0.12",
+    "electron-reload": "^2.0.0-alpha.1",
+    "eslint": "^9.38.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "dgram": "^1.0.1",
+    "net": "^1.0.2"
+  }
+}

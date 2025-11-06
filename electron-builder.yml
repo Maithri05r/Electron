@@ -1,0 +1,22 @@
+appId: com.sdrpoc.desktop
+productName: SDR POC Desktop App
+copyright: '© 2025 Alten GT'
+directories:
+  output: dist_electron
+  buildResources: assets
+files:
+  - dist/electron/**
+  - frontend/dist/**
+  - package.json
+asar: true
+extraMetadata:
+  main: dist/electron/main.js
+win:
+  target:
+    - nsis
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true

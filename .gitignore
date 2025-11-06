@@ -1,0 +1,15 @@
+# Node modules
+node_modules/
+
+# Electron & frontend build output
+dist/
+dist_electron/
+frontend/dist/
+dist/backend/
+dist/electron/
+
+# Logs and temp
+*.log
+.DS_Store
+.env
+
