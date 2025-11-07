@@ -1,31 +1,23 @@
-import  net from "net";
-// import { SERVER_IP, PORT } from './config/config';
+import net from "net";
 
+export function sendTCPMessage(targetIP: string, targetPort: number, message: string) {
+  const client = new net.Socket();
 
-// const SERVER_IP = '192.168.0.10';
-// const PORT = 5000;
-
-export function connectToServer(serverIP: string, onMessage: (msg: string, fromIP: string) => void) {
-  const socket = new net.Socket();
-
-  socket.connect(5000, serverIP, () => {
-    console.log(`Connected to TCP Server at ${serverIP}:5000`);
+  console.log(` Connecting to ${targetIP}:${targetPort}...`);
+  client.connect(targetPort, targetIP, () => {
+    console.log("Connected to server, sending message...");
+    client.write(message + "\n");
   });
 
-  socket.on("data", (data) => {
-    const msg = data.toString().trim();
-    console.log(` From server (${serverIP}):`, msg);
-    onMessage(msg, serverIP);
+  client.on("data", (data) => {
+    console.log(" Reply from server:", data.toString());
   });
 
-  socket.on("error", (err) => {
+  client.on("close", () => {
+    console.log(" Connection closed");
+  });
+
+  client.on("error", (err) => {
     console.error(" TCP Error:", err.message);
   });
-
-  socket.on("close", () => {
-    console.log(" TCP Connection closed");
-  });
-
-  return socket;
 }
-
