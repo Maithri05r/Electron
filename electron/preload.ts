@@ -1,23 +1,23 @@
 import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Send message to backend
+  sendTCPMessage: (targetIP: string, msg: string) =>
+    ipcRenderer.send("tcp-send-message", { targetIP, msg }),
+
+  // Listen for incoming TCP messages
+  onTCPMessage: (callback: (data: { msg: string; fromIP: string }) => void) => {
+    ipcRenderer.on("tcp-message", (_, data) => callback(data));
+  },
+
+  // Optional: Remove listener
+  removeTCPMessageListener: (callback: any) => {
+    ipcRenderer.removeListener("tcp-message", callback);
+  },
+
   ping: () => ipcRenderer.invoke('ping'),
   // getAppInfo: () => ipcRenderer.invoke('getAppInfo'),
   getPeers: () => ipcRenderer.invoke("getPeers"),
-  sendTCPMessage: (ip: string, message: string) =>
-    ipcRenderer.invoke("send-tcp-message", ip, message),
-   onTCPMessage: (callback: (data: { msg: string; fromIP: string }) => void) =>
-    ipcRenderer.on("tcp-message-received", (_, data) => callback(data)),
-    // removeTCPMessageListener: (callback: (data: { msg: string; fromIP: string }) => void) =>
-    // ipcRenderer.removeListener("tcp-message-received", callback),
-    removeTCPMessageListener: (listener: (...args: any[]) => void) => {
-    ipcRenderer.removeListener("tcp-message-received", listener);
-  //   sendTypingStatus: (ip: string, isTyping: boolean) => ipcRenderer.invoke('send-typing-status', ip, isTyping),
-  //   onTypingStatus: (cb) => {
-  //   const listener = (_evt, data) => cb(data);
-  //   ipcRenderer.on('typing-status', listener);
-  //   return () => ipcRenderer.removeListener('typing-status', listener);
-  // },
-  // // optional removeTypingListener wrapper for parity
-  // removeTypingListener: (cb) => ipcRenderer.removeListener('typing-status', cb),
-  },
+  // sendMessage: (msg: string) => ipcRenderer.send("send-message", msg),
+  // onServerMessage: (callback: (msg: string) => void) =>
+  //   ipcRenderer.on("server-message", (_, message) => callback(message)),
 });

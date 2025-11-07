@@ -58,11 +58,11 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import url from 'url';
 import { startDiscovery } from './lanDiscovery';
-import { startTCPServer,PORT } from '../backend/tcpServer';
-import { sendMessage } from '../backend/tcpClient';
+import { connectToServer } from './tcpClient';
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow: BrowserWindow | null = null;
+let tcpSocket: any = null;
 
 // Enable auto-reload in development
 if (isDev) {
@@ -101,6 +101,13 @@ function createWindow() {
 
     mainWindow.loadURL(indexPath);
   }
+  // Connect to TCP Server
+  tcpSocket = connectToServer("192.168.0.10", (msg, fromIP) => {
+    // Forward message to frontend via IPC
+     if (mainWindow) {
+    mainWindow.webContents.send("tcp-message", { msg, fromIP });
+     }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -109,23 +116,20 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 
+// From React → Send TCP message
+ipcMain.on("tcp-send-message", (event, { targetIP, msg }) => {
+  if (tcpSocket) {
+    console.log(`Sending to ${targetIP}:`, msg);
+    tcpSocket.write(msg + "\n");
+  }
+});
+
 const discovery = startDiscovery("MyElectronApp");
 ipcMain.handle("getPeers", async () => {
   return discovery.getPeers();
 });
 
-startTCPServer((msg,fromIP)=>{
-  console.log(` Message from ${fromIP}: ${msg}`);
-    mainWindow?.webContents.send("tcp-message-received", { msg, fromIP });
-})
-ipcMain.handle("send-tcp-message",async(_,targetIP:string,message:string)=>{
-  try{
- await sendMessage(targetIP, PORT, message);
-      return { success: true };
-  }catch(err:any){
-return { success: false, error: err.message };
-  }
-})
+
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

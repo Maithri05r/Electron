@@ -2,6 +2,7 @@ import dgram from "dgram";
 import os from "os";
 
 const PORT = 41234;
+const BROADCAST_INTERVAL = 3000;
 const BROADCAST_ADDR = "255.255.255.255";
 
 export interface PeerInfo {
@@ -50,11 +51,11 @@ export function startDiscovery(appName = "ElectronApp") {
   isActive: "online",
   timestamp: Date.now(),
 };
-console.log("📡 Broadcasting:", messageObj);
+// console.log("📡 Broadcasting:", messageObj);
 
 const message = JSON.stringify(messageObj);
       socket.send(message, 0, message.length, PORT, BROADCAST_ADDR);
-    }, 3000);
+    }, BROADCAST_INTERVAL);
     // setInterval(() => {
     //   const message = JSON.stringify({ type: "DISCOVER", name: appName, ip: localIP });
     //   socket.send(message, 0, message.length, PORT, BROADCAST_ADDR);
@@ -71,7 +72,7 @@ const message = JSON.stringify(messageObj);
           const displayName = data.name.split(" - ").pop(); 
           // const isActive = data.isActive || "offline";
           const isActive = "online";
-          console.log("data.isActive", data,data.isActive);
+          // console.log("data.isActive", data,data.isActive);
           
           // peers.set(data.ip, { ip: data.ip, name: displayName });
       //     peers.set(data.ip, {
