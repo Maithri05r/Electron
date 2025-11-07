@@ -58,7 +58,8 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import url from 'url';
 import { startDiscovery } from './lanDiscovery';
-import { connectToServer } from './tcpClient';
+import { startTCPServer } from "../backend/tcpServer";
+import { sendTCPMessage } from "./tcpClient";
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow: BrowserWindow | null = null;
@@ -101,13 +102,11 @@ function createWindow() {
 
     mainWindow.loadURL(indexPath);
   }
+  startTCPServer(5001);
   // Connect to TCP Server
-  tcpSocket = connectToServer("192.168.0.10", (msg, fromIP) => {
-    // Forward message to frontend via IPC
-     if (mainWindow) {
-    mainWindow.webContents.send("tcp-message", { msg, fromIP });
-     }
-  });
+ setTimeout(() => {
+  sendTCPMessage("127.0.0.1", 5000, "Hello from App 2!");
+}, 2000);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
