@@ -1,7 +1,7 @@
 // preload.ts
 import { contextBridge, ipcRenderer } from "electron";
 
-// Map the user's callback -> actual handler we registered
+// Map user's callback -> the actual handler we register
 const handlerMap = new WeakMap<
   (data: { msg: string; fromIP: string }) => void,
   (event: Electron.IpcRendererEvent, data: { msg: string; fromIP: string }) => void
@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   sendTCPMessage: (ip: string, msg: string) => ipcRenderer.invoke("sendTCPMessage", ip, msg),
 
   onTCPMessage: (cb: (data: { msg: string; fromIP: string }) => void) => {
-    // Wrap once and store
+    // idempotent: if we already wrapped this cb, reuse it
     let handler = handlerMap.get(cb);
     if (!handler) {
       handler = (_e, data) => cb(data);
@@ -31,9 +31,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }
       return;
     }
-    // Optional convenience: remove all if no cb passed
+    // remove all listeners if no cb provided
     ipcRenderer.removeAllListeners("tcp:message");
-    
+    // WeakMap entries will GC automatically; no clear() on WeakMap
   },
 });
 

@@ -119,24 +119,48 @@ app.whenReady().then(() => {
 // Start UDP peer discovery (optional)
   discovery = startDiscovery("MyElectronApp");;
 
-    // Start TCP server (listen for messages)
-  tcpServer = startTCPServer();
+  if (!(global as any).__tcpServer) {
+  (global as any).__tcpServer = startTCPServer();
 
-   // Forward received messages to the renderer
-  tcpServer.onMessage((msg, fromIP) => {
-    console.log(`📨 Message from ${fromIP}: ${msg}`);
-    mainWindow?.webContents.send("tcp:message", { msg, fromIP });
+}
+const tcpServer = (global as any).__tcpServer;
+
+// Ensure we forward to renderer only once
+if (!(global as any).__tcpForwardWired) {
+  tcpServer.onMessage((msg: string, fromIP: string) => {
+    BrowserWindow.getAllWindows().forEach(w =>
+      w.webContents.send("tcp:message", { msg, fromIP })
+    );
   });
+  (global as any).__tcpForwardWired = true;
+}
+
+// Re-register IPC handlers idempotently
+ipcMain.removeHandler("sendTCPMessage");
+ipcMain.removeHandler("getPeers");
+
+
+
+  //   // Start TCP server (listen for messages)
+  // tcpServer = startTCPServer();
+
+  //  // Forward received messages to the renderer
+  // tcpServer.onMessage((msg, fromIP) => {
+  //   console.log(`📨 Message from ${fromIP}: ${msg}`);
+  //   mainWindow?.webContents.send("tcp:message", { msg, fromIP });
+  // });
 
    
 
-    //  IPC: Get current discovered peers
-  ipcMain.handle("getPeers", async () => discovery?.getPeers() ?? []);
+   
   
   //  IPC: Send TCP message to another node
   ipcMain.handle("sendTCPMessage", async (_event, ip: string, msg: string) => {
     await sendTCPMessage(ip, msg);
   });
+
+   //  IPC: Get current discovered peers
+  ipcMain.handle("getPeers", async () => discovery?.getPeers() ?? []);
   console.log(" Electron main initialized (server + discovery)");
 
 });

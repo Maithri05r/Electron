@@ -1,4 +1,4 @@
-import { useState,useEffect  } from 'react';
+import { useState,useRef,useEffect  } from 'react';
 import { ContactList } from './ContactList';
 import { ChatWindow } from './ChatWindow';
 import { CallDialog } from './CallDialog';
@@ -35,6 +35,7 @@ interface ChatPageProps {
     status: 'online' | 'offline' | 'away';
   };
 }
+const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
@@ -166,26 +167,21 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     type: 'audio',
     contact: null,
   });
+   const seen = useRef<Set<string>>(new Set()); // de-dupe window
 
   useEffect(() => {
     const fetchPeers = async () => {
       try {
         const peers = await (window as any).electronAPI.getPeers();
         console.log("peers",peers);
-        const formattedPeers = peers.map((peer: any, idx: number) => ({
-        id: peer.ip || `peer-${idx}`,
-        name: peer.name || `Node-${idx + 1}`,
-        // isActive may be "online" | "offline" (string); don't treat any string as truthy
-        status: peer.isActive === "online" ? "online" : "offline",
-        ipAddress: peer.ip,
-      }));
+       
         
-        // const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
-        //   id: peer.ip || `peer-${idx}`,
-        //   name: peer.name || `Node-${idx + 1}`,
-        //   status: peer.isActive ? "online" : "offline",
-        //   ipAddress: peer.ip,
-        // }));
+        const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
+          id: peer.ip || `peer-${idx}`,
+          name: peer.name || `Node-${idx + 1}`,
+          status: peer.isActive === "online" ? "online" : "offline",
+          ipAddress: peer.ip,
+        }));
         setContacts(formattedPeers);
       } catch (err) {
         console.error("Failed to get peers:", err);
@@ -197,10 +193,15 @@ export function ChatPage({ currentUser }: ChatPageProps) {
 
     // Listen for incoming TCP messages once
   const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
+     // de-dupe key over a 2s bucket (adjust if needed)
+      const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
+      if (seen.current.has(key)) return;
+      seen.current.add(key);
     setMessages((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        // id: Date.now().toString(),
+        id: makeId(),
         senderId: fromIP,
         text: msg,
         timestamp: new Date(),
