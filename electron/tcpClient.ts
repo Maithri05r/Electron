@@ -1,23 +1,22 @@
-import net from "net";
+import net from "node:net";
+const TCP_PORT = 50505;
 
-export function sendTCPMessage(targetIP: string, targetPort: number, message: string) {
-  const client = new net.Socket();
+export async function sendTCPMessage(ip: string, message: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+    socket.setNoDelay(true);
 
-  console.log(` Connecting to ${targetIP}:${targetPort}...`);
-  client.connect(targetPort, targetIP, () => {
-    console.log("Connected to server, sending message...");
-    client.write(message + "\n");
-  });
+    socket.connect(TCP_PORT, ip, () => {
+      socket.write(message + "\n", () => {
+        console.log(`📤 Sent to ${ip}:${TCP_PORT} → ${message}`);
+        socket.end();
+        resolve();
+      });
+    });
 
-  client.on("data", (data) => {
-    console.log(" Reply from server:", data.toString());
-  });
-
-  client.on("close", () => {
-    console.log(" Connection closed");
-  });
-
-  client.on("error", (err) => {
-    console.error(" TCP Error:", err.message);
+    socket.on("error", (err) => {
+      console.error("❌ TCP send error:", err.message);
+      reject(err);
+    });
   });
 }

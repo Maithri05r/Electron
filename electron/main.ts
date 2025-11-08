@@ -63,7 +63,10 @@ import { sendTCPMessage } from "./tcpClient";
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow: BrowserWindow | null = null;
-let tcpSocket: any = null;
+
+// 👉 add: keep a handle to discovery
+let discovery: ReturnType<typeof startDiscovery> | null = null;
+let tcpServer: ReturnType<typeof startTCPServer> | null = null;
 
 // Enable auto-reload in development
 if (isDev) {
@@ -98,35 +101,46 @@ function createWindow() {
     const indexPath = url.pathToFileURL(
       path.join(__dirname, '../../frontend/dist/index.html'),
     ).href;
-    console.log(indexPath);
+    // console.log(indexPath);
 
     mainWindow.loadURL(indexPath);
   }
-  startTCPServer(5001);
-  // Connect to TCP Server
- setTimeout(() => {
-  sendTCPMessage("127.0.0.1", 5000, "Hello from App 2!");
-}, 2000);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-app.whenReady().then(createWindow);
+// app.whenReady().then(createWindow);
 
-// From React → Send TCP message
-ipcMain.on("tcp-send-message", (event, { targetIP, msg }) => {
-  if (tcpSocket) {
-    console.log(`Sending to ${targetIP}:`, msg);
-    tcpSocket.write(msg + "\n");
-  }
+app.whenReady().then(() => {
+  createWindow();
+
+// Start UDP peer discovery (optional)
+  discovery = startDiscovery("MyElectronApp");;
+
+    // Start TCP server (listen for messages)
+  tcpServer = startTCPServer();
+
+   // Forward received messages to the renderer
+  tcpServer.onMessage((msg, fromIP) => {
+    console.log(`📨 Message from ${fromIP}: ${msg}`);
+    mainWindow?.webContents.send("tcp:message", { msg, fromIP });
+  });
+
+   //  IPC: Send TCP message to another node
+  ipcMain.handle("sendTCPMessage", async (_event, ip: string, msg: string) => {
+    await sendTCPMessage(ip, msg);
+  });
+
+    //  IPC: Get current discovered peers
+  ipcMain.handle("getPeers", async () => discovery?.getPeers() ?? []);
+console.log(" Electron main initialized (server + discovery)");
 });
 
-const discovery = startDiscovery("MyElectronApp");
-ipcMain.handle("getPeers", async () => {
-  return discovery.getPeers();
-});
+// ipcMain.handle('lan:getPeers', async () => {
+//     return discovery?.getPeers() ?? [];
+//   });
 
 
 
