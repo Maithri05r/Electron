@@ -172,13 +172,20 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       try {
         const peers = await (window as any).electronAPI.getPeers();
         console.log("peers",peers);
+        const formattedPeers = peers.map((peer: any, idx: number) => ({
+        id: peer.ip || `peer-${idx}`,
+        name: peer.name || `Node-${idx + 1}`,
+        // isActive may be "online" | "offline" (string); don't treat any string as truthy
+        status: peer.isActive === "online" ? "online" : "offline",
+        ipAddress: peer.ip,
+      }));
         
-        const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
-          id: peer.ip || `peer-${idx}`,
-          name: peer.name || `Node-${idx + 1}`,
-          status: peer.isActive ? "online" : "offline",
-          ipAddress: peer.ip,
-        }));
+        // const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
+        //   id: peer.ip || `peer-${idx}`,
+        //   name: peer.name || `Node-${idx + 1}`,
+        //   status: peer.isActive ? "online" : "offline",
+        //   ipAddress: peer.ip,
+        // }));
         setContacts(formattedPeers);
       } catch (err) {
         console.error("Failed to get peers:", err);
@@ -208,9 +215,9 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   // Cleanup on unmount
   return () => {
     clearInterval(interval);
-    if ((window as any).electronAPI?.removeTCPMessageListener) {
+    // if ((window as any).electronAPI?.removeTCPMessageListener) {
       (window as any).electronAPI.removeTCPMessageListener(messageListener);
-    }
+    // }
   };
   }, []);
 
@@ -234,7 +241,8 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       isSent: true,
       isRead: false,
     };
-    setMessages([...messages, newMessage]);
+    // setMessages([...messages, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
   };
 
   const handleSendFile = (file: File) => {
