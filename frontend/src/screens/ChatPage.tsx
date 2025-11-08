@@ -221,12 +221,41 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     // }
   };
   }, []);
+const selectedContact = contacts.find((c) => c.id === selectedContactId);
+  useEffect(() => {
+  const off = window.electronAPI.onTCPEvent((evt: any) => {
+    if (evt.type === 'MSG') {
+      setMessages(prev => [...prev, {
+        id: evt.id,
+        senderId: evt.fromIP,
+        text: evt.text,
+        timestamp: new Date(),
+        isSent: true,   // ignored by MessageItem for received bubbles
+        isRead: true,
+      }]);
 
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
+      const isActive = selectedContact && selectedContact.ipAddress === evt.fromIP;
+      if (isActive) {
+        window.electronAPI.chatRead(evt.fromIP, [evt.id]); // <-- now exists
+      }
+    } else if (evt.type === 'ACK') {
+      setMessages(prev => prev.map(m => m.id === evt.id ? { ...m, isSent: true } : m));
+    } else if (evt.type === 'READ') {
+      setMessages(prev => prev.map(m => evt.ids.includes(m.id) ? { ...m, isRead: true } : m));
+    }
+  });
+
+  return () => { off && off(); };
+}, [selectedContact]);
+
+  
+  const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   const handleSendMessage = async(text: string) => {
      if (!selectedContact) return;
      console.log("contacts",contacts);
+     const id = newId();
+  const toIP = selectedContact.ipAddress;
      
      // find selected contact’s status
   const contact = contacts.find((c) => c.id === selectedContact.id);
@@ -235,15 +264,16 @@ export function ChatPage({ currentUser }: ChatPageProps) {
      await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
     }
     const newMessage: Message = {
-      id: Date.now().toString(),
+      id,
       senderId: 'me',
       text,
       timestamp: new Date(),
-      isSent: true,
+      isSent: false,
       isRead: false,
     };
     // setMessages([...messages, newMessage]);
     setMessages(prev => [...prev, newMessage]);
+    await window.electronAPI.chatSend(toIP, id, text);
   };
 
   const handleSendFile = (file: File) => {
