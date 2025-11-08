@@ -128,14 +128,17 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send("tcp:message", { msg, fromIP });
   });
 
-   //  IPC: Send TCP message to another node
-  ipcMain.handle("sendTCPMessage", async (_event, ip: string, msg: string) => {
-    await sendTCPMessage(ip, msg);
-  });
+   
 
     //  IPC: Get current discovered peers
   ipcMain.handle("getPeers", async () => discovery?.getPeers() ?? []);
-console.log(" Electron main initialized (server + discovery)");
+  
+  //  IPC: Send TCP message to another node
+  ipcMain.handle("sendTCPMessage", async (_event, ip: string, msg: string) => {
+    await sendTCPMessage(ip, msg);
+  });
+  console.log(" Electron main initialized (server + discovery)");
+
 });
 
 // ipcMain.handle('lan:getPeers', async () => {

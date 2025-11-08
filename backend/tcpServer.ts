@@ -1,36 +1,51 @@
 import net from "node:net";
+import os from "node:os";
 import { EventEmitter } from "node:events";
 
-const TCP_PORT = 50505;
+const TCP_PORT = 5000;
 
 export function startTCPServer() {
-  const emitter = new EventEmitter();
-  const clients: net.Socket[] = []; 
+  const ee = new EventEmitter();
 
   const server = net.createServer((socket) => {
     console.log(`✅ Client connected: ${socket.remoteAddress}:${socket.remotePort}`);
-    clients.push(socket);
+    socket.setNoDelay(true);
 
+    let buf = "";
     socket.on("data", (chunk) => {
-      const msg = chunk.toString("utf8").trim();
-      console.log(`📩 From ${socket.remoteAddress}: ${msg}`);
-      emitter.emit("message", { fromIP: socket.remoteAddress, msg });
+      buf += chunk.toString("utf8");
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) {
+          console.log(`📩 From ${socket.remoteAddress}: ${line}`);
+          ee.emit("message", line, socket.remoteAddress ?? "unknown");
+        }
+      }
     });
 
     socket.on("close", () => {
-      const i = clients.indexOf(socket);
-      if (i >= 0) clients.splice(i, 1);
       console.log(`❌ Client disconnected: ${socket.remoteAddress}`);
     });
 
     socket.on("error", (err) => console.error("Socket error:", err.message));
   });
 
-  server.listen(TCP_PORT, () => console.log(`🚀 TCP Server listening on ${TCP_PORT}`));
+  server.on("error", (e) => console.error("TCP server error:", e));
+
+  // listen on all IPv4 interfaces so peers can reach it over LAN
+  server.listen(TCP_PORT, "0.0.0.0", () => {
+    const ips = Object.values(os.networkInterfaces())
+      .flatMap(a => a ?? [])
+      .filter(n => n?.family === "IPv4" && !n.internal)
+      .map(n => n!.address);
+    console.log(`🚀 TCP server on 0.0.0.0:${TCP_PORT} (LAN IPs: ${ips.join(", ")})`);
+  });
 
   return {
     onMessage: (cb: (msg: string, fromIP: string) => void) =>
-      emitter.on("message", ({ msg, fromIP }) => cb(msg, fromIP)),
+      ee.on("message", (msg, fromIP) => cb(msg, fromIP)),
     stop: () => server.close(),
     port: TCP_PORT,
   };
