@@ -256,34 +256,53 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       }
 
       // --- FILE END ---
-      if (msg.startsWith("__FILE_END__:")) {
-        const id = msg.slice("__FILE_END__:".length).trim();
-        const buf = incomingFilesRef.current.get(id);
-        if (!buf) return;
-        const b64 = buf.chunks.join("");
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: buf.type });
-        const humanSize = `${(buf.size / (1024 * 1024)).toFixed(2)} MB`;
+  if (msg.startsWith("__FILE_END__:")) {
+    // __FILE_END__:<id>
+    const id = msg.slice("__FILE_END__:".length).trim();
+    const buf = incomingFilesRef.current.get(id);
+    if (!buf) return;
 
+    const b64 = buf.chunks.join(""); // full base64 payload
+    const humanSize = `${(buf.size / (1024 * 1024)).toFixed(2)} MB`;
 
     setMessages((prev) => [
       ...prev,
       {
-        // id: Date.now().toString(),
         id: makeId(),
         senderId: buf.fromIP,
-        file: { name: buf.name, size: humanSize, type: buf.type },
-        text: msg,
+        file: {
+          name: buf.name,
+          size: humanSize,
+          type: buf.type,
+          // 👇 store base64 so Download button can save it
+          data: b64,
+        },
         timestamp: new Date(),
         isSent: true,
         isRead: true,
       },
     ]);
-     incomingFilesRef.current.delete(id);
-        return;
-  };
+
+    incomingFilesRef.current.delete(id);
+    return;
+  }
+
+  //   setMessages((prev) => [
+  //     ...prev,
+  //     {
+  //       // id: Date.now().toString(),
+  //       id: makeId(),
+  //       senderId: buf.fromIP,
+  //       file: { name: buf.name, size: humanSize, type: buf.type },
+  //       text: msg,
+  //       timestamp: new Date(),
+  //       isSent: true,
+  //       isRead: true,
+  //     },
+  //   ]);
+  //    incomingFilesRef.current.delete(id);
+  //       return;
+  // };
 
     // --- Normal text ---
       setMessages((prev) => [

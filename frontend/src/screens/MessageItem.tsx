@@ -71,27 +71,28 @@ export function MessageItem({ message, senderName, senderAvatar, isOwn }: Messag
                 {message.file.size}
               </p>
             </div>
-            <Button
+           <Button
   variant="ghost"
   size="icon"
   className={isOwn ? 'text-white hover:opacity-80' : 'hover:bg-gray-100'}
   style={!isOwn ? { color: '#4D7A82' } : {}}
   onClick={async () => {
-    if (!message.file?.data) return; // assuming you have base64 stored for received files
-    const b64 = message.file.data;
-    const result = await window.electronAPI.saveBase64ToFile(
+    // we saved base64 as message.file.data when receiving
+    const data = message.file?.data;
+    if (!data || !message.file) return;
+
+    const res = await window.electronAPI.saveBase64ToFile(
       message.file.name,
-      b64,
+      data,
       message.file.type
     );
-    if (result?.ok) {
-      // Optional: auto open after save
-      // await window.electronAPI.openPath(result.path);
-    }
+    // optional: open after save
+    // if (res?.ok && res.path) await window.electronAPI.openPath(res.path);
   }}
 >
   <Download className="w-4 h-4" />
 </Button>
+
 
               {/* <Button
                 variant="ghost"
