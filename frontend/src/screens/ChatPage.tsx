@@ -35,13 +35,7 @@ interface ChatPageProps {
     status: 'online' | 'offline' | 'away';
   };
 }
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-const MID_RE = /\s*\[mid:([^\]]+)\]\s*$/; // captures the [mid:ID] suffix
-function extractMid(text: string) {
-  const m = text.match(MID_RE);
-  if (!m) return { clean: text, id: null as string | null };
-  return { clean: text.replace(MID_RE, '').trimEnd(), id: m[1] };
-}
+
 
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
@@ -173,8 +167,20 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     type: 'audio',
     contact: null,
   });
-   const seen = useRef<Set<string>>(new Set()); // de-dupe window
+  //  const seen = useRef<Set<string>>(new Set()); // de-dupe window
+  const selectedContact = contacts.find((c) => c.id === selectedContactId);
   useEffect(() => {
+    const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const MID_RE = /\s*\[mid:([^\]]+)\]\s*$/; // captures the [mid:ID] suffix
+function extractMid(text: string) {
+  const m = text.match(MID_RE);
+  if (!m) return { clean: text, id: null as string | null };
+  return { clean: text.replace(MID_RE, '').trimEnd(), id: m[1] };
+}
+
+// de-dupe within a small time bucket (helps during hot-reload/dev)
+  const seenKeys = new Set<string>();
+
   const fetchPeers = async () => {
     try {
       const peers = await (window as any).electronAPI.getPeers();
@@ -193,26 +199,36 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   fetchPeers();
   const interval = setInterval(fetchPeers, 3000);
 
+  // ---- TCP listener ----
   const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
-    // 1) control: ACK
-    if (msg.startsWith('__ACK__:')) {
-      const ackId = msg.slice('__ACK__:'.length).trim();
+     // collapse obvious duplicates in dev
+    const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+
+    // 1) delivered receipt → gray double tick
+    if (msg.startsWith("__ACK__:")) {
+      const ackId = msg.slice("__ACK__:".length).trim();
       if (ackId) {
-        setMessages(prev => prev.map(m => m.id === ackId ? { ...m, isSent: true } : m));
+        setMessages(prev =>
+          prev.map(m => (m.id === ackId ? { ...m, isSent: true } : m))
+        );
       }
       return;
     }
 
-    // 2) control: READ
-    if (msg.startsWith('__READ__:')) {
-      const readId = msg.slice('__READ__:'.length).trim();
+     // 2) seen receipt → blue double tick
+    if (msg.startsWith("__READ__:")) {
+      const readId = msg.slice("__READ__:".length).trim();
       if (readId) {
-        setMessages(prev => prev.map(m => m.id === readId ? { ...m, isRead: true } : m));
+        setMessages(prev =>
+          prev.map(m => (m.id === readId ? { ...m, isRead: true } : m))
+        );
       }
       return;
     }
 
-    // 3) normal chat
+     // 3) normal chat: extract [mid:id] and strip before display
     const { clean, id } = extractMid(msg);
 
     // add incoming bubble
@@ -228,23 +244,34 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       },
     ]);
 
-    // ✅ send receipts back *inside* the listener, where `id` and `fromIP` exist
+   // send receipts back if sender provided a message id
     if (id) {
+      // DELIVERED → tell sender to turn gray double tick
       (window as any).electronAPI.sendTCPMessage(fromIP, `__ACK__:${id}`);
+
+      // SEEN only if this conversation is currently open
       const isActive = selectedContact && selectedContact.ipAddress === fromIP;
       if (isActive) {
         (window as any).electronAPI.sendTCPMessage(fromIP, `__READ__:${id}`);
       }
     }
   };
-
-  (window as any).electronAPI.onTCPMessage(messageListener);
+// subscribe (supports both APIs: with or without unsubscribe)
+  const maybeOff = (window as any).electronAPI.onTCPMessage(messageListener);
 
   return () => {
     clearInterval(interval);
-    (window as any).electronAPI.removeTCPMessageListener(messageListener);
+    // (window as any).electronAPI.removeTCPMessageListener(messageListener);
+    if (typeof maybeOff === "function") {
+      // new API style: onTCPMessage returns an unsubscribe
+      maybeOff();
+    } else if ((window as any).electronAPI.removeTCPMessageListener) {
+      // legacy API style: explicit removal by handler reference
+      (window as any).electronAPI.removeTCPMessageListener(messageListener);
+    }
+    seenKeys.clear();
   };
-}, []); // keep deps empty for this listener
+}, [selectedContact]); // keep deps empty for this listener
 
   // useEffect(() => {
   //   const fetchPeers = async () => {
@@ -330,34 +357,58 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   // };
   // }, []);
 
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
-
-  const handleSendMessage = async(text: string) => {
-     if (!selectedContact) return;
-     console.log("contacts",contacts);
-     const id = makeId();
+  // const selectedContact = contacts.find((c) => c.id === selectedContactId);
+  const handleSendMessage = async (text: string) => {
+  if (!selectedContact) return;
+const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const id = makeId();
   const toIP = selectedContact.ipAddress;
-     
-     // find selected contact’s status
-  const contact = contacts.find((c) => c.id === selectedContact.id);
-  const isOnline = contact?.status === "online";
-    if (isOnline) {
-     await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
-    }
-    const newMessage: Message = {
-      id: Date.now().toString(),
+
+  // optimistic bubble (no ticks yet)
+  setMessages(prev => [
+    ...prev,
+    {
+      id,                 // same id you'll put into [mid:id]
       senderId: 'me',
       text,
       timestamp: new Date(),
-      isSent: true,
-      isRead: false,
-    };
-    // setMessages([...messages, newMessage]);
-    setMessages(prev => [...prev, newMessage]);
-     // send the text PLUS the inline id marker (plain text)
+      isSent: false,      // turns true on __ACK__
+      isRead: false,      // turns true on __READ__
+    }
+  ]);
+
+  // ONLY send mid-marked text (no raw-duplicate)
   const wireText = `${text} [mid:${id}]`;
   await (window as any).electronAPI.sendTCPMessage(toIP, wireText);
-  };
+};
+
+
+  // const handleSendMessage = async(text: string) => {
+  //    if (!selectedContact) return;
+  //    console.log("contacts",contacts);
+  //    const id = makeId();
+  // const toIP = selectedContact.ipAddress;
+     
+  //    // find selected contact’s status
+  // const contact = contacts.find((c) => c.id === selectedContact.id);
+  // const isOnline = contact?.status === "online";
+  //   if (isOnline) {
+  //    await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
+  //   }
+  //   const newMessage: Message = {
+  //     id: Date.now().toString(),
+  //     senderId: 'me',
+  //     text,
+  //     timestamp: new Date(),
+  //     isSent: false,
+  //     isRead: false,
+  //   };
+  //   // setMessages([...messages, newMessage]);
+  //   setMessages(prev => [...prev, newMessage]);
+  //    // send the text PLUS the inline id marker (plain text)
+  // const wireText = `${text} [mid:${id}]`;
+  // await (window as any).electronAPI.sendTCPMessage(toIP, wireText);
+  // };
 
   const handleSendFile = (file: File) => {
     const newMessage: Message = {

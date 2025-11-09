@@ -126,14 +126,23 @@ app.whenReady().then(() => {
 const tcpServer = (global as any).__tcpServer;
 
 // Ensure we forward to renderer only once
+// if (!(global as any).__tcpForwardWired) {
+//   tcpServer.onMessage((msg: string, fromIP: string) => {
+//     BrowserWindow.getAllWindows().forEach(w =>
+//       w.webContents.send("tcp:message", { msg, fromIP })
+//     );
+//   });
+//   (global as any).__tcpForwardWired = true;
+// }
 if (!(global as any).__tcpForwardWired) {
-  tcpServer.onMessage((msg: string, fromIP: string) => {
+  tcpServer.onMessage((evt: any) => {
     BrowserWindow.getAllWindows().forEach(w =>
-      w.webContents.send("tcp:message", { msg, fromIP })
+      w.webContents.send('tcp:message', evt)  // your UDP->main->renderer bridge
     );
   });
   (global as any).__tcpForwardWired = true;
 }
+
 
 // Re-register IPC handlers idempotently
 ipcMain.removeHandler("sendTCPMessage");

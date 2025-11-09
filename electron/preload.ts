@@ -12,15 +12,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getPeers: () => ipcRenderer.invoke("getPeers"),
   sendTCPMessage: (ip: string, msg: string) => ipcRenderer.invoke("sendTCPMessage", ip, msg),
 
+  // Subscribe and return an unsubscribe
   onTCPMessage: (cb: (data: { msg: string; fromIP: string }) => void) => {
-    // idempotent: if we already wrapped this cb, reuse it
-    let handler = handlerMap.get(cb);
-    if (!handler) {
-      handler = (_e, data) => cb(data);
-      handlerMap.set(cb, handler);
-    }
+    const handler = (_e: any, data: any) => cb(data);
     ipcRenderer.on("tcp:message", handler);
+    return () => ipcRenderer.removeListener("tcp:message", handler);
   },
+
+  // onTCPMessage: (cb: (data: { msg: string; fromIP: string }) => void) => {
+  //   // idempotent: if we already wrapped this cb, reuse it
+  //   let handler = handlerMap.get(cb);
+  //   if (!handler) {
+  //     handler = (_e, data) => cb(data);
+  //     handlerMap.set(cb, handler);
+  //   }
+  //   ipcRenderer.on("tcp:message", handler);
+  // },
 
   removeTCPMessageListener: (cb?: (data: { msg: string; fromIP: string }) => void) => {
     if (cb) {
