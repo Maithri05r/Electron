@@ -36,6 +36,7 @@ interface ChatPageProps {
   };
 }
 
+const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
@@ -167,248 +168,84 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     type: 'audio',
     contact: null,
   });
-  //  const seen = useRef<Set<string>>(new Set()); // de-dupe window
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
+   const seen = useRef<Set<string>>(new Set()); // de-dupe window
+
   useEffect(() => {
-    const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-const MID_RE = /\s*\[mid:([^\]]+)\]\s*$/; // captures the [mid:ID] suffix
-function extractMid(text: string) {
-  const m = text.match(MID_RE);
-  if (!m) return { clean: text, id: null as string | null };
-  return { clean: text.replace(MID_RE, '').trimEnd(), id: m[1] };
-}
+    const fetchPeers = async () => {
+      try {
+        const peers = await (window as any).electronAPI.getPeers();
+        console.log("peers",peers);
+       
+        
+        const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
+          id: peer.ip || `peer-${idx}`,
+          name: peer.name || `Node-${idx + 1}`,
+          status: peer.isActive === "online" ? "online" : "offline",
+          ipAddress: peer.ip,
+        }));
+        setContacts(formattedPeers);
+      } catch (err) {
+        console.error("Failed to get peers:", err);
+      }
+    };
+    fetchPeers();
+    const interval = setInterval(fetchPeers, 3000); // refresh every 3 sec
+    // return () => clearInterval(interval);
 
-// de-dupe within a small time bucket (helps during hot-reload/dev)
-  const seenKeys = new Set<string>();
-
-  const fetchPeers = async () => {
-    try {
-      const peers = await (window as any).electronAPI.getPeers();
-      const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
-        id: peer.ip || `peer-${idx}`,
-        name: peer.name || `Node-${idx + 1}`,
-        status: peer.isActive === "online" ? "online" : "offline",
-        ipAddress: peer.ip,
-      }));
-      setContacts(formattedPeers);
-    } catch (err) {
-      console.error("Failed to get peers:", err);
-    }
-  };
-
-  fetchPeers();
-  const interval = setInterval(fetchPeers, 3000);
-
-  // ---- TCP listener ----
+    // Listen for incoming TCP messages once
   const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
-     // collapse obvious duplicates in dev
-    const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
-
-    // 1) delivered receipt → gray double tick
-    if (msg.startsWith("__ACK__:")) {
-      const ackId = msg.slice("__ACK__:".length).trim();
-      if (ackId) {
-        setMessages(prev =>
-          prev.map(m => (m.id === ackId ? { ...m, isSent: true } : m))
-        );
-      }
-      return;
-    }
-
-     // 2) seen receipt → blue double tick
-    if (msg.startsWith("__READ__:")) {
-      const readId = msg.slice("__READ__:".length).trim();
-      if (readId) {
-        setMessages(prev =>
-          prev.map(m => (m.id === readId ? { ...m, isRead: true } : m))
-        );
-      }
-      return;
-    }
-
-     // 3) normal chat: extract [mid:id] and strip before display
-    const { clean, id } = extractMid(msg);
-
-    // add incoming bubble
-    setMessages(prev => [
+     // de-dupe key over a 2s bucket (adjust if needed)
+      const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
+      if (seen.current.has(key)) return;
+      seen.current.add(key);
+    setMessages((prev) => [
       ...prev,
       {
-        id: makeId(),         // local id for received bubble
+        // id: Date.now().toString(),
+        id: makeId(),
         senderId: fromIP,
-        text: clean,
+        text: msg,
         timestamp: new Date(),
-        isSent: true,
+        isSent: false,
         isRead: true,
       },
     ]);
-
-   // send receipts back if sender provided a message id
-    if (id) {
-      // DELIVERED → tell sender to turn gray double tick
-      (window as any).electronAPI.sendTCPMessage(fromIP, `__ACK__:${id}`);
-
-      // SEEN only if this conversation is currently open
-      const isActive = selectedContact && selectedContact.ipAddress === fromIP;
-      if (isActive) {
-        (window as any).electronAPI.sendTCPMessage(fromIP, `__READ__:${id}`);
-      }
-    }
   };
-// subscribe (supports both APIs: with or without unsubscribe)
-  const maybeOff = (window as any).electronAPI.onTCPMessage(messageListener);
 
+  (window as any).electronAPI.onTCPMessage(messageListener);
+
+  // Cleanup on unmount
   return () => {
     clearInterval(interval);
-    // (window as any).electronAPI.removeTCPMessageListener(messageListener);
-    if (typeof maybeOff === "function") {
-      // new API style: onTCPMessage returns an unsubscribe
-      maybeOff();
-    } else if ((window as any).electronAPI.removeTCPMessageListener) {
-      // legacy API style: explicit removal by handler reference
+    // if ((window as any).electronAPI?.removeTCPMessageListener) {
       (window as any).electronAPI.removeTCPMessageListener(messageListener);
-    }
-    seenKeys.clear();
+    // }
   };
-}, [selectedContact]); // keep deps empty for this listener
+  }, []);
 
-  // useEffect(() => {
-  //   const fetchPeers = async () => {
-  //     try {
-  //       const peers = await (window as any).electronAPI.getPeers();
-  //       console.log("peers",peers);
-       
-        
-  //       const formattedPeers: Contact[] = peers.map((peer: any, idx: number) => ({
-  //         id: peer.ip || `peer-${idx}`,
-  //         name: peer.name || `Node-${idx + 1}`,
-  //         status: peer.isActive === "online" ? "online" : "offline",
-  //         ipAddress: peer.ip,
-  //       }));
-  //       setContacts(formattedPeers);
-  //     } catch (err) {
-  //       console.error("Failed to get peers:", err);
-  //     }
-  //   };
-  //   fetchPeers();
-  //   const interval = setInterval(fetchPeers, 3000); // refresh every 3 sec
-  //   // return () => clearInterval(interval);
+  const selectedContact = contacts.find((c) => c.id === selectedContactId);
 
-  //   // Listen for incoming TCP messages once
-  // const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
-  //    // de-dupe key over a 2s bucket (adjust if needed)
-  //     // const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
-  //     // if (seen.current.has(key)) return;
-  //     // seen.current.add(key);
-  //     // 1) control: ACK
-  // if (msg.startsWith('__ACK__:')) {
-  //   const id = msg.slice('__ACK__:'.length).trim();
-  //   if (id) {
-  //     setMessages(prev => prev.map(m => m.id === id ? { ...m, isSent: true } : m));
-  //   }
-  //   return;
-  // }
-  //  // 2) control: READ
-  // if (msg.startsWith('__READ__:')) {
-  //   const id = msg.slice('__READ__:'.length).trim();
-  //   if (id) {
-  //     setMessages(prev => prev.map(m => m.id === id ? { ...m, isRead: true } : m));
-  //   }
-  //   return;
-  // }
-
-  // // 3) normal chat: extract [mid:id], strip for display
-  // const { clean, id } = extractMid(msg);
-  //   setMessages((prev) => [
-  //     ...prev,
-  //     {
-  //       // id: Date.now().toString(),
-  //       id: makeId(),
-  //       senderId: fromIP,
-  //       text: clean,
-  //       timestamp: new Date(),
-  //       isSent: true,
-  //       isRead: true,
-  //     },
-  //   ]);
-  // };
-
-  // // (window as any).electronAPI.onTCPMessage(messageListener);
-  // if (id) {
-  //   // ACK immediately (delivered)
-  //   (window as any).electronAPI.sendTCPMessage(fromIP, `__ACK__:${id}`);
-
-  //   // If this thread is active, also send READ
-  //   const isActive = selectedContact && selectedContact.ipAddress === fromIP;
-  //   if (isActive) {
-  //     (window as any).electronAPI.sendTCPMessage(fromIP, `__READ__:${id}`);
-  //   }
-  // }
-  //  // subscribe (you had this commented out)
-  // (window as any).electronAPI.onTCPMessage(messageListener);
-
-  // // Cleanup on unmount
-  // return () => {
-  //   clearInterval(interval);
-  //   // if ((window as any).electronAPI?.removeTCPMessageListener) {
-  //     (window as any).electronAPI.removeTCPMessageListener(messageListener);
-  //   // }
-  // };
-  // }, []);
-
-  // const selectedContact = contacts.find((c) => c.id === selectedContactId);
-  const handleSendMessage = async (text: string) => {
-  if (!selectedContact) return;
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const id = makeId();
-  const toIP = selectedContact.ipAddress;
-
-  // optimistic bubble (no ticks yet)
-  setMessages(prev => [
-    ...prev,
-    {
-      id,                 // same id you'll put into [mid:id]
+  const handleSendMessage = async(text: string) => {
+     if (!selectedContact) return;
+     console.log("contacts",contacts);
+     
+     // find selected contact’s status
+  const contact = contacts.find((c) => c.id === selectedContact.id);
+  const isOnline = contact?.status === "online";
+    if (isOnline) {
+     await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
+    }
+    const newMessage: Message = {
+      id: Date.now().toString(),
       senderId: 'me',
       text,
       timestamp: new Date(),
-      isSent: false,      // turns true on __ACK__
-      isRead: false,      // turns true on __READ__
-    }
-  ]);
-
-  // ONLY send mid-marked text (no raw-duplicate)
-  const wireText = `${text} [mid:${id}]`;
-  await (window as any).electronAPI.sendTCPMessage(toIP, wireText);
-};
-
-
-  // const handleSendMessage = async(text: string) => {
-  //    if (!selectedContact) return;
-  //    console.log("contacts",contacts);
-  //    const id = makeId();
-  // const toIP = selectedContact.ipAddress;
-     
-  //    // find selected contact’s status
-  // const contact = contacts.find((c) => c.id === selectedContact.id);
-  // const isOnline = contact?.status === "online";
-  //   if (isOnline) {
-  //    await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
-  //   }
-  //   const newMessage: Message = {
-  //     id: Date.now().toString(),
-  //     senderId: 'me',
-  //     text,
-  //     timestamp: new Date(),
-  //     isSent: false,
-  //     isRead: false,
-  //   };
-  //   // setMessages([...messages, newMessage]);
-  //   setMessages(prev => [...prev, newMessage]);
-  //    // send the text PLUS the inline id marker (plain text)
-  // const wireText = `${text} [mid:${id}]`;
-  // await (window as any).electronAPI.sendTCPMessage(toIP, wireText);
-  // };
+      isSent: true,
+      isRead: false,
+    };
+    // setMessages([...messages, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
+  };
 
   const handleSendFile = (file: File) => {
     const newMessage: Message = {
