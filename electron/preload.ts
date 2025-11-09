@@ -10,17 +10,6 @@ const handlerMap = new WeakMap<
 contextBridge.exposeInMainWorld("electronAPI", {
   ping: () => ipcRenderer.invoke("ping"),
   getPeers: () => ipcRenderer.invoke("getPeers"),
-  // send chat + receipts
-  chatSend: (toIP: string, id: string, text: string) => ipcRenderer.invoke('chat:send', toIP, id, text),
-  chatRead: (toIP: string, ids: string[]) => ipcRenderer.invoke('chat:read', toIP, ids),
-
-  // receive wire events (MSG / ACK / READ)
-  onTCPEvent: (cb: (e: any) => void) => {
-    const handler = (_: any, data: any) => cb(data);
-    ipcRenderer.on('tcp:message', handler);
-    return () => ipcRenderer.removeListener('tcp:message', handler);
-  },
-  
   sendTCPMessage: (ip: string, msg: string) => ipcRenderer.invoke("sendTCPMessage", ip, msg),
 
   onTCPMessage: (cb: (data: { msg: string; fromIP: string }) => void) => {

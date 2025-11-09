@@ -59,13 +59,10 @@ import path from 'path';
 import url from 'url';
 import { startDiscovery } from './lanDiscovery';
 import { startTCPServer } from "../backend/tcpServer";
-import { sendTCPMessage,tcpSendMessage, tcpSendRead } from "./tcpClient";
+import { sendTCPMessage } from "./tcpClient";
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow: BrowserWindow | null = null;
-
-// in-memory tracker: msgId -> { toIP }
-const outbox = new Map<string, { toIP: string }>();
 
 // 👉 add: keep a handle to discovery
 let discovery: ReturnType<typeof startDiscovery> | null = null;
@@ -130,26 +127,17 @@ const tcpServer = (global as any).__tcpServer;
 
 // Ensure we forward to renderer only once
 if (!(global as any).__tcpForwardWired) {
-  // tcpServer.onMessage((msg: string, fromIP: string) => {
-  //   BrowserWindow.getAllWindows().forEach(w =>
-  //     w.webContents.send("tcp:message", { msg, fromIP })
-  //   );
-  // });
-  tcpServer.onMessage((evt: any) => {
-      // evt is structured: { type:'MSG'|'ACK'|'READ', fromIP, id?, text?, ids? }
-      BrowserWindow.getAllWindows().forEach(w => {
-        w.webContents.send('tcp:message', evt);
-      });
-      });
+  tcpServer.onMessage((msg: string, fromIP: string) => {
+    BrowserWindow.getAllWindows().forEach(w =>
+      w.webContents.send("tcp:message", { msg, fromIP })
+    );
+  });
   (global as any).__tcpForwardWired = true;
 }
-
 
 // Re-register IPC handlers idempotently
 ipcMain.removeHandler("sendTCPMessage");
 ipcMain.removeHandler("getPeers");
-ipcMain.removeHandler('chat:send');
-  ipcMain.removeHandler('chat:read');
 
 
 
@@ -170,20 +158,6 @@ ipcMain.removeHandler('chat:send');
   ipcMain.handle("sendTCPMessage", async (_event, ip: string, msg: string) => {
     await sendTCPMessage(ip, msg);
   });
-
-  // ---------- IPC from renderer ----------
-
-// 1) send chat
-ipcMain.handle('chat:send', async (_e, toIP: string, id: string, text: string) => {
-  outbox.set(id, { toIP });
-  await tcpSendMessage(toIP, id, text);
-  // Renderer will optimistically insert the message; nothing else to do here
-});
-
-// 2) send read receipts (batch allowed)
-ipcMain.handle('chat:read', async (_e, toIP: string, ids: string[]) => {
-  await tcpSendRead(toIP, ids);
-});
 
    //  IPC: Get current discovered peers
   ipcMain.handle("getPeers", async () => discovery?.getPeers() ?? []);
