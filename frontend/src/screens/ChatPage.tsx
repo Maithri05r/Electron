@@ -36,6 +36,12 @@ interface ChatPageProps {
   };
 }
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const MID_RE = /\s*\[mid:([^\]]+)\]\s*$/; // captures the [mid:ID] suffix
+function extractMid(text: string) {
+  const m = text.match(MID_RE);
+  if (!m) return { clean: text, id: null as string | null };
+  return { clean: text.replace(MID_RE, '').trimEnd(), id: m[1] };
+}
 
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
@@ -194,23 +200,54 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     // Listen for incoming TCP messages once
   const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
      // de-dupe key over a 2s bucket (adjust if needed)
-      const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
-      if (seen.current.has(key)) return;
-      seen.current.add(key);
+      // const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
+      // if (seen.current.has(key)) return;
+      // seen.current.add(key);
+      // 1) control: ACK
+  if (msg.startsWith('__ACK__:')) {
+    const id = msg.slice('__ACK__:'.length).trim();
+    if (id) {
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, isSent: true } : m));
+    }
+    return;
+  }
+   // 2) control: READ
+  if (msg.startsWith('__READ__:')) {
+    const id = msg.slice('__READ__:'.length).trim();
+    if (id) {
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, isRead: true } : m));
+    }
+    return;
+  }
+
+  // 3) normal chat: extract [mid:id], strip for display
+  const { clean, id } = extractMid(msg);
     setMessages((prev) => [
       ...prev,
       {
         // id: Date.now().toString(),
         id: makeId(),
         senderId: fromIP,
-        text: msg,
+        text: clean,
         timestamp: new Date(),
-        isSent: false,
+        isSent: true,
         isRead: true,
       },
     ]);
   };
 
+  // (window as any).electronAPI.onTCPMessage(messageListener);
+  if (id) {
+    // ACK immediately (delivered)
+    (window as any).electronAPI.sendTCPMessage(fromIP, `__ACK__:${id}`);
+
+    // If this thread is active, also send READ
+    const isActive = selectedContact && selectedContact.ipAddress === fromIP;
+    if (isActive) {
+      (window as any).electronAPI.sendTCPMessage(fromIP, `__READ__:${id}`);
+    }
+  }
+   // subscribe (you had this commented out)
   (window as any).electronAPI.onTCPMessage(messageListener);
 
   // Cleanup on unmount
@@ -227,13 +264,15 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   const handleSendMessage = async(text: string) => {
      if (!selectedContact) return;
      console.log("contacts",contacts);
+     const id = makeId();
+  const toIP = selectedContact.ipAddress;
      
      // find selected contact’s status
-  const contact = contacts.find((c) => c.id === selectedContact.id);
-  const isOnline = contact?.status === "online";
-    if (isOnline) {
+  // const contact = contacts.find((c) => c.id === selectedContact.id);
+  // const isOnline = contact?.status === "online";
+    // if (isOnline) {
      await (window as any).electronAPI.sendTCPMessage(selectedContact.ipAddress, text);
-    }
+    // }
     const newMessage: Message = {
       id: Date.now().toString(),
       senderId: 'me',
@@ -244,6 +283,9 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     };
     // setMessages([...messages, newMessage]);
     setMessages(prev => [...prev, newMessage]);
+     // send the text PLUS the inline id marker (plain text)
+  const wireText = `${text} [mid:${id}]`;
+  await (window as any).electronAPI.sendTCPMessage(toIP, wireText);
   };
 
   const handleSendFile = (file: File) => {
