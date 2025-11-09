@@ -22,28 +22,25 @@ export function startTCPServer() {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
         if (!line) continue;
-        const msg = JSON.parse(line) as WireMessage;
+       try {
+  const msg = JSON.parse(line) as WireMessage;
 
-          if (msg.type === 'MSG') {
-            // 1) notify renderer (incoming chat text)
-            ee.emit('message', {
-              type: 'MSG',
-              fromIP: socket.remoteAddress ?? 'unknown',
-              id: msg.id,
-              text: msg.text,
-            });
-
-            // 2) immediately ACK back (DELIVERED)
-            send({ type: 'ACK', id: msg.id });
-          }
-          else if (msg.type === 'READ') {
-            // forward read receipts to renderer
-            ee.emit('message', {
-              type: 'READ',
-              fromIP: socket.remoteAddress ?? 'unknown',
-              ids: msg.ids,
-            });
-          }
+  if (msg.type === 'MSG') {
+    ee.emit('message', { type: 'MSG', fromIP: socket.remoteAddress ?? 'unknown', id: msg.id, text: msg.text });
+    // ACK back to sender (DELIVERED)
+    socket.write(JSON.stringify({ type: 'ACK', id: msg.id }) + '\n');
+  } else if (msg.type === 'READ') {
+    ee.emit('message', { type: 'READ', fromIP: socket.remoteAddress ?? 'unknown', ids: msg.ids });
+  } else if (msg.type === 'ACK') {
+    ee.emit('message', { type: 'ACK', fromIP: socket.remoteAddress ?? 'unknown', id: msg.id });
+  }
+} catch {
+  // Non-JSON line (legacy). Either ignore or forward as a basic MSG without ACK
+  const legacyId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  ee.emit('message', { type: 'MSG', fromIP: socket.remoteAddress ?? 'unknown', id: legacyId, text: line });
+  // (optional) do NOT ACK legacy; the sender won't understand it anyway
+  // If you *must* ACK for logging symmetry, you can write an ACK, but it's harmless either way.
+}
         if (line) {
           console.log(`📩 From ${socket.remoteAddress}: ${line}`);
           ee.emit("message", line, socket.remoteAddress ?? "unknown");

@@ -273,7 +273,7 @@ const selectedContact = contacts.find((c) => c.id === selectedContactId);
     };
     // setMessages([...messages, newMessage]);
     setMessages(prev => [...prev, newMessage]);
-    await window.electronAPI.chatSend(toIP, id, text);
+    // await window.electronAPI.chatSend(toIP, id, text);
   };
 
   const handleSendFile = (file: File) => {
