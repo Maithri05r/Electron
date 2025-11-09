@@ -1,4 +1,5 @@
-import { useState,useRef,useEffect  } from 'react';
+import { useEffect, useRef, useState } from "react";
+import * as React from "react";
 import { ContactList } from './ContactList';
 import { ChatWindow } from './ChatWindow';
 import { CallDialog } from './CallDialog';
@@ -37,6 +38,36 @@ interface ChatPageProps {
 }
 
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const MID_RE = /\s*\[mid:([^\]]+)\]\s*$/;
+const FILE_CHUNK_SIZE = 48 * 1024; // base64 chars per chunk (~36KB binary)
+
+const extractMid = (text: string) => {
+  const m = text.match(MID_RE);
+  if (!m) return { clean: text, id: null as string | null };
+  return { clean: text.replace(MID_RE, '').trimEnd(), id: m[1] };
+};
+
+// read File -> base64 (browser-safe; no Node Buffer needed)
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const dataUrl = fr.result as string; // "data:<type>;base64,AAAA..."
+      resolve(dataUrl.split(',')[1]);
+    };
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+
+// receiver-side assembly store
+type IncomingFileBuf = {
+  fromIP: string;
+  name: string;
+  type: string;
+  size: number;
+  chunks: string[];
+};
+
 
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
@@ -170,6 +201,9 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   });
    const seen = useRef<Set<string>>(new Set()); // de-dupe window
 
+    const selectedContact = contacts.find((c) => c.id === selectedContactId);
+  const incomingFilesRef = React.useRef<Map<string, IncomingFileBuf>>(new Map());
+
   useEffect(() => {
     const fetchPeers = async () => {
       try {
@@ -193,37 +227,90 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     // return () => clearInterval(interval);
 
     // Listen for incoming TCP messages once
-  const messageListener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
+  const listener = ({ msg, fromIP }: { msg: string; fromIP: string }) => {
      // de-dupe key over a 2s bucket (adjust if needed)
       const key = `${fromIP}|${msg}|${Math.floor(Date.now() / 2000)}`;
       if (seen.current.has(key)) return;
       seen.current.add(key);
+
+            // --- FILE START ---
+      if (msg.startsWith("__FILE_START__:")) {
+        const parts = msg.split(":");
+        const id = parts[1];
+        const name = decodeURIComponent(parts[2] ?? "file");
+        const type = parts[3] ?? "application/octet-stream";
+        const size = Number(parts[4] ?? 0);
+        incomingFilesRef.current.set(id, { fromIP, name, type, size, chunks: [] });
+        return;
+      }
+
+       // --- FILE CHUNK ---
+      if (msg.startsWith("__FILE_CHUNK__:")) {
+        const first = msg.indexOf(":");
+        const second = msg.indexOf(":", first + 1);
+        const id = msg.slice(first + 1, second);
+        const b64 = msg.slice(second + 1);
+        const buf = incomingFilesRef.current.get(id);
+        if (buf) buf.chunks.push(b64);
+        return;
+      }
+
+      // --- FILE END ---
+      if (msg.startsWith("__FILE_END__:")) {
+        const id = msg.slice("__FILE_END__:".length).trim();
+        const buf = incomingFilesRef.current.get(id);
+        if (!buf) return;
+        const b64 = buf.chunks.join("");
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: buf.type });
+        const humanSize = `${(buf.size / (1024 * 1024)).toFixed(2)} MB`;
+
+
     setMessages((prev) => [
       ...prev,
       {
         // id: Date.now().toString(),
         id: makeId(),
-        senderId: fromIP,
+        senderId: buf.fromIP,
+        file: { name: buf.name, size: humanSize, type: buf.type },
         text: msg,
         timestamp: new Date(),
-        isSent: false,
+        isSent: true,
         isRead: true,
       },
     ]);
+     incomingFilesRef.current.delete(id);
+        return;
   };
 
-  (window as any).electronAPI.onTCPMessage(messageListener);
+    // --- Normal text ---
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: makeId(),
+          senderId: fromIP,
+          text: msg,
+          timestamp: new Date(),
+          isSent: true,
+          isRead: true,
+        },
+         ]);
+        }
+  (window as any).electronAPI.onTCPMessage(listener);
 
   // Cleanup on unmount
   return () => {
     clearInterval(interval);
     // if ((window as any).electronAPI?.removeTCPMessageListener) {
-      (window as any).electronAPI.removeTCPMessageListener(messageListener);
+      (window as any).electronAPI.removeTCPMessageListener(listener);
+      seen.current.clear();
     // }
   };
   }, []);
 
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
+ 
 
   const handleSendMessage = async(text: string) => {
      if (!selectedContact) return;
@@ -247,21 +334,61 @@ export function ChatPage({ currentUser }: ChatPageProps) {
     setMessages(prev => [...prev, newMessage]);
   };
 
-  const handleSendFile = (file: File) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      senderId: 'me',
-      file: {
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        type: file.type,
+ // --- Send file ---
+  const handleSendFile = async (file: File) => {
+    if (!selectedContact) return;
+    const id = makeId();
+    const toIP = selectedContact.ipAddress;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        senderId: "me",
+        file: {
+          name: file.name,
+          size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+          type: file.type,
+        },
+        timestamp: new Date(),
+        isSent: true,
+        isRead: true,
       },
-      timestamp: new Date(),
-      isSent: true,
-      isRead: false,
-    };
-    setMessages([...messages, newMessage]);
+    ]);
+
+    const safeName = encodeURIComponent(file.name);
+    await (window as any).electronAPI.sendTCPMessage(
+      toIP,
+      `__FILE_START__:${id}:${safeName}:${file.type}:${file.size}`
+    );
+
+    const base64 = await fileToBase64(file);
+    for (let i = 0; i < base64.length; i += FILE_CHUNK_SIZE) {
+      const chunk = base64.slice(i, i + FILE_CHUNK_SIZE);
+      await (window as any).electronAPI.sendTCPMessage(
+        toIP,
+        `__FILE_CHUNK__:${id}:${chunk}`
+      );
+    }
+    await (window as any).electronAPI.sendTCPMessage(toIP, `__FILE_END__:${id}`);
   };
+
+
+  // const handleSendFile = (file: File) => {
+  //   const newMessage: Message = {
+  //     id: Date.now().toString(),
+  //     senderId: 'me',
+  //     file: {
+  //       name: file.name,
+  //       size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+  //       type: file.type,
+  //     },
+  //     timestamp: new Date(),
+  //     isSent: true,
+  //     isRead: false,
+  //   };
+  //   setMessages([...messages, newMessage]);
+  // };
 
   const handleStartCall = (type: 'audio' | 'video') => {
     if (selectedContact) {

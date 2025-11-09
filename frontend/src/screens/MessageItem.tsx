@@ -23,6 +23,7 @@ interface MessageItemProps {
   isOwn: boolean;
 }
 
+
 export function MessageItem({ message, senderName, senderAvatar, isOwn }: MessageItemProps) {
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -71,13 +72,35 @@ export function MessageItem({ message, senderName, senderAvatar, isOwn }: Messag
               </p>
             </div>
             <Button
-              variant="ghost"
-              size="icon"
-              className={isOwn ? 'text-white hover:opacity-80' : 'hover:bg-gray-100'}
-              style={!isOwn ? { color: '#4D7A82' } : {}}
-            >
-              <Download className="w-4 h-4" />
-            </Button>
+  variant="ghost"
+  size="icon"
+  className={isOwn ? 'text-white hover:opacity-80' : 'hover:bg-gray-100'}
+  style={!isOwn ? { color: '#4D7A82' } : {}}
+  onClick={async () => {
+    if (!message.file?.data) return; // assuming you have base64 stored for received files
+    const b64 = message.file.data;
+    const result = await window.electronAPI.saveBase64ToFile(
+      message.file.name,
+      b64,
+      message.file.type
+    );
+    if (result?.ok) {
+      // Optional: auto open after save
+      // await window.electronAPI.openPath(result.path);
+    }
+  }}
+>
+  <Download className="w-4 h-4" />
+</Button>
+
+              {/* <Button
+                variant="ghost"
+                size="icon"
+                className={isOwn ? 'text-white hover:opacity-80' : 'hover:bg-gray-100'}
+                style={!isOwn ? { color: '#4D7A82' } : {}}
+              >
+                <Download className="w-4 h-4" />
+              </Button> */}
           </div>
         ) : (
           <div

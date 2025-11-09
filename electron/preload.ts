@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }
     ipcRenderer.on("tcp:message", handler);
   },
+  // ask main to show a Save dialog and write base64 data
+  saveBase64ToFile: (suggestedName: string, base64: string, mime: string) =>
+    ipcRenderer.invoke("saveBase64ToFile", { suggestedName, base64, mime }),
+
+  // optionally open a saved file
+  openPath: (absolutePath: string) => ipcRenderer.invoke("openPath", absolutePath),
 
   removeTCPMessageListener: (cb?: (data: { msg: string; fromIP: string }) => void) => {
     if (cb) {
@@ -34,6 +40,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     // remove all listeners if no cb provided
     ipcRenderer.removeAllListeners("tcp:message");
     // WeakMap entries will GC automatically; no clear() on WeakMap
+    
   },
 });
 

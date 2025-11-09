@@ -55,12 +55,13 @@
 // ipcMain.handle('ping', () => 'pong');
 
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import url from 'url';
 import { startDiscovery } from './lanDiscovery';
 import { startTCPServer } from "../backend/tcpServer";
 import { sendTCPMessage } from "./tcpClient";
+import fs from "node:fs";
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow: BrowserWindow | null = null;
@@ -151,6 +152,21 @@ ipcMain.removeHandler("getPeers");
   //   mainWindow?.webContents.send("tcp:message", { msg, fromIP });
   // });
 
+  ipcMain.handle("saveBase64ToFile", async (_e, { suggestedName, base64, mime }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: suggestedName || "received-file",
+  });
+  if (canceled || !filePath) return { ok: false };
+
+  // write base64 to disk
+  await fs.promises.writeFile(filePath, Buffer.from(base64, "base64"));
+  return { ok: true, path: filePath };
+});
+
+ipcMain.handle("openPath", async (_e, p: string) => {
+  const res = await shell.openPath(p);
+  return { ok: res === "" };
+});
    
 
    
@@ -165,6 +181,7 @@ ipcMain.removeHandler("getPeers");
   console.log(" Electron main initialized (server + discovery)");
 
 });
+
 
 // ipcMain.handle('lan:getPeers', async () => {
 //     return discovery?.getPeers() ?? [];
