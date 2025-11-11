@@ -107,11 +107,26 @@ export function ChatWindow({
             <h3 className="mb-1" style={{ color: '#2D464D' }}>
               {contact.name}
             </h3>
-            {contact.ipAddress && (
+            {/* {contact.ipAddress && (
               <p className="text-sm truncate" style={{ color: '#6B9AA4' }}>
                 {contact.ipAddress}
               </p>
-            )}
+            )} */}
+            {contact.ipAddress && (
+  <div className="flex items-center gap-2">
+    <p className="text-sm truncate" style={{ color: '#6B9AA4' }}>
+      {contact.ipAddress}
+    </p>
+    {peerIsTyping && (
+      <span
+        className="text-[11px] leading-none rounded-full px-2 py-1"
+        style={{ backgroundColor: '#E8F0F2', color: '#2D464D' }}
+      >
+        typing…
+      </span>
+    )}
+  </div>
+)}
             {contact.location && (
               <p className="text-sm truncate" style={{ color: '#89B2BA' }}>
                 {contact.location.city}, {contact.location.country}
