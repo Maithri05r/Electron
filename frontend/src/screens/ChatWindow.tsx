@@ -21,6 +21,8 @@ interface ChatWindowProps {
   onSendMessage: (text: string) => void;
   onSendFile: (file: File) => void;
   onStartCall: (type: 'audio' | 'video') => void;
+  onTyping?: (isTyping: boolean) => void;
+  peerIsTyping?: boolean;
 }
 
 export function ChatWindow({
@@ -29,6 +31,8 @@ export function ChatWindow({
   onSendMessage,
   onSendFile,
   onStartCall,
+  onTyping,
+  peerIsTyping = false,
 }: ChatWindowProps) {
   const [messageText, setMessageText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,10 +48,26 @@ export function ChatWindow({
     }
   }, [messages]);
 
+   // emit typing transitions when input empties/non-empties
+  useEffect(() => {
+    if (!onTyping) return;
+    if (messageText.trim().length > 0) onTyping(true);
+    else onTyping(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageText]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   const handleSend = () => {
     if (messageText.trim()) {
       onSendMessage(messageText);
       setMessageText('');
+      onTyping?.(false);
     }
   };
 
@@ -55,6 +75,7 @@ export function ChatWindow({
     const file = e.target.files?.[0];
     if (file) {
       onSendFile(file);
+      onTyping?.(false);
     }
   };
 
@@ -147,6 +168,17 @@ export function ChatWindow({
               isOwn={message.senderId === 'me'}
             />
           ))}
+          {/* Typing indicator (peer) */}
+          {peerIsTyping && (
+            <div className="mt-2 flex items-center gap-2">
+              <div
+                className="inline-flex items-center rounded-full px-3 py-1 text-xs"
+                style={{ backgroundColor: "#E8F0F2", color: "#6B9AA4" }}
+              >
+                typing…
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -171,6 +203,9 @@ export function ChatWindow({
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
               onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
+              onFocus={() => onTyping?.(messageText.trim().length > 0 || true)}
+              onBlur={() => onTyping?.(false)}
               placeholder="Type a message..."
               className="pr-10 bg-white text-gray-900 placeholder:text-gray-400"
               style={{ borderColor: '#A7CAD0' }}

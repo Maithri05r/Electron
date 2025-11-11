@@ -33,7 +33,7 @@ export default function App() {
 import { useEffect,useState } from 'react';
 import { Sidebar } from './screens/Sidebar';
 import { HomePage } from './screens/HomePage';
-import { ChatPage } from './screens/ChatPage';
+import { ChatPage } from './screens/Chat/ChatPage';
 import { CallsPage } from './screens/CallsPage';
 import { FilesPage } from './screens/FilesPage';
 import { VideoCallSettings } from './screens/VideoCallSettings';

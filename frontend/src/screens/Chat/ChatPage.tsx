@@ -40,6 +40,8 @@ interface ChatPageProps {
 
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const FILE_CHUNK_SIZE = 48 * 1024; // base64 chars per chunk (~36KB binary)
+const TYPING_EXPIRE_MS = 3000;     // typing indicator auto-hide window
+const TYPING_THROTTLE_MS = 800;
 
 // // read File -> base64 (browser-safe; no Node Buffer needed)
 // const fileToBase64 = (file: File) =>
@@ -194,6 +196,9 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   // const [messages, setMessages] = useState<Message[]>([]);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
+  // --- typing state per peer IP ---
+  // value is last time (ms) we saw them typing; if recent => show "typing…"
+  const [peerTypingAt, setPeerTypingAt] = useState<Record<string, number>>({});
   const [callState, setCallState] = useState<{
     isOpen: boolean;
     type: 'audio' | 'video';
@@ -209,6 +214,11 @@ export function ChatPage({ currentUser }: ChatPageProps) {
   const incomingFilesRef = React.useRef<Map<string, IncomingFileBuf>>(new Map());
   const selectedIpRef = useRef<string | null>(null);
   const lastSeenAtRef = useRef<Map<string, number>>(new Map()); // throttle SEEN acks
+
+  // For typing emission throttling per peer
+  const lastTypingSentAtRef = useRef<Map<string, number>>(new Map());
+  const typingActiveRef = useRef<Map<string, boolean>>(new Map()); // our local "we're typing" per peer
+
 
   // ---- Mark / Ack helpers ----
   const markThreadRead = (ip: string) =>
@@ -233,6 +243,45 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       console.error("Failed to send __SEEN__:", e);
     }
   };
+
+    // --- Typing helpers (emit to peer) ---
+  const sendTyping = async (ip: string, isTyping: boolean) => {
+    try {
+      // don't spam "start"—throttle
+      if (isTyping) {
+        const now = Date.now();
+        const last = lastTypingSentAtRef.current.get(ip) ?? 0;
+        if (now - last < TYPING_THROTTLE_MS) return;
+        lastTypingSentAtRef.current.set(ip, now);
+      }
+      await (window as any).electronAPI.sendTCPMessage(
+        ip,
+        isTyping ? "__TYPING__:start" : "__TYPING__:stop"
+      );
+    } catch (e) {
+      console.error("Failed to send __TYPING__:", e);
+    }
+  };
+
+  // Called by ChatWindow via prop to notify us that *we* are typing to selected peer
+  const handleLocalTyping = (isTyping: boolean) => {
+    if (!selectedContact) return;
+    const ip = selectedContact.ipAddress;
+    const wasTyping = typingActiveRef.current.get(ip) || false;
+
+    // only send transitions or periodic "start" (throttled)
+    if (isTyping && !wasTyping) {
+      typingActiveRef.current.set(ip, true);
+      void sendTyping(ip, true);
+    } else if (!isTyping && wasTyping) {
+      typingActiveRef.current.set(ip, false);
+      void sendTyping(ip, false);
+    } else if (isTyping && wasTyping) {
+      // still typing: allow throttled refresh to keep the other side alive
+      void sendTyping(ip, true);
+    }
+  };
+
 
   useEffect(() => {
 selectedIpRef.current = selectedContact?.ipAddress ?? null;
@@ -277,6 +326,17 @@ selectedIpRef.current = selectedContact?.ipAddress ?? null;
           const updated = msgs.map((m) => (m.senderId === 'me' ? { ...m, isRead: true } : m));
           return { ...prev, [fromIP]: updated };
         });
+        return;
+      }
+
+      // --- Typing inbound ---
+      if (msg.startsWith("__TYPING__:")) {
+        const now = Date.now();
+        const isStart = msg.endsWith("start");
+        setPeerTypingAt((prev) => ({
+          ...prev,
+          [fromIP]: isStart ? now : 0, // 0 = not typing
+        }));
         return;
       }
 
@@ -440,6 +500,26 @@ selectedIpRef.current = selectedContact?.ipAddress ?? null;
     return () => window.removeEventListener("focus", onFocus);
   }, [messages, selectedContact]);
 
+  // --- Expire typing indicators automatically ---
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setPeerTypingAt((prev) => {
+        let changed = false;
+        const next: Record<string, number> = { ...prev };
+        for (const [ip, ts] of Object.entries(prev)) {
+          if (ts > 0 && now - ts > TYPING_EXPIRE_MS) {
+            next[ip] = 0;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 500);
+    return () => clearInterval(timer);
+  }, []);
+
+  // --- Send text ---
   const handleSendMessage = async (text: string) => {
     if (!selectedContact) return;
     console.log('contacts', contacts);
@@ -506,7 +586,7 @@ selectedIpRef.current = selectedContact?.ipAddress ?? null;
             },
             timestamp: new Date(),
             isSent: true,
-            isRead: true,
+            isRead: false,
           },
         ],
       };
@@ -561,6 +641,10 @@ selectedIpRef.current = selectedContact?.ipAddress ?? null;
     });
   };
 
+  const peerIsTyping =
+    selectedContact?.ipAddress ? (peerTypingAt[selectedContact.ipAddress] ?? 0) > 0 : false;
+
+
   return (
     <div className="flex h-full">
       <div className="w-80 flex-shrink-0">
@@ -581,6 +665,8 @@ selectedIpRef.current = selectedContact?.ipAddress ?? null;
             onSendMessage={handleSendMessage}
             onSendFile={handleSendFile}
             onStartCall={handleStartCall}
+             peerIsTyping={peerIsTyping}
+             onTyping={handleLocalTyping}
           />
         ) : (
           <div className="flex items-center justify-center h-full" style={{ color: '#4D7A82' }}>
