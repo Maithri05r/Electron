@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Phone, Video, MoreVertical, Send, Paperclip, Smile, User } from 'lucide-react';
-import { MessageItem, Message } from './MessageItem';
+import { MessageItem, Message } from './Chat/MessageItem';
 
 interface ChatWindowProps {
   contact: {
