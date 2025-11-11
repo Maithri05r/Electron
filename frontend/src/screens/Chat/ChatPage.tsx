@@ -70,6 +70,8 @@ type IncomingFileBuf = {
 //   return `${bytes} B`;
 // }
 
+
+
 export function ChatPage({ currentUser }: ChatPageProps) {
   // const [contacts] = useState<Contact[]>([
   //   {
@@ -205,7 +207,36 @@ export function ChatPage({ currentUser }: ChatPageProps) {
 
   const selectedContact = contacts.find((c) => c.id === selectedContactId);
   const incomingFilesRef = React.useRef<Map<string, IncomingFileBuf>>(new Map());
+  const selectedIpRef = useRef<string | null>(null);
+  const lastSeenAtRef = useRef<Map<string, number>>(new Map()); // throttle SEEN acks
 
+  // ---- Mark / Ack helpers ----
+  const markThreadRead = (ip: string) =>
+    setMessages((prev) => {
+      const thread = prev[ip] || [];
+      if (!thread.length) return prev;
+      const updated = thread.map((m) => (m.isRead ? m : { ...m, isRead: true }));
+      if (updated === thread) return prev;
+      return { ...prev, [ip]: updated };
+    });
+
+    const sendSeen = async (ip: string) => {
+    try {
+      // throttle to avoid spamming acks
+      const now = Date.now();
+      const last = lastSeenAtRef.current.get(ip) ?? 0;
+      if (now - last < 1000) return;
+      lastSeenAtRef.current.set(ip, now);
+
+      await (window as any).electronAPI.sendTCPMessage(ip, "__SEEN__");
+    } catch (e) {
+      console.error("Failed to send __SEEN__:", e);
+    }
+  };
+
+  useEffect(() => {
+selectedIpRef.current = selectedContact?.ipAddress ?? null;
+  }, [selectedContact]);
   useEffect(() => {
     const fetchPeers = async () => {
       try {
@@ -327,6 +358,13 @@ export function ChatPage({ currentUser }: ChatPageProps) {
           };
         });
 
+        // If recipient is viewing this thread and window is focused → mark read & ack
+        const openIp = selectedIpRef.current;
+        if (openIp && openIp === buf.fromIP && document.hasFocus()) {
+          markThreadRead(buf.fromIP);
+          sendSeen(buf.fromIP);
+        }
+
         incomingFilesRef.current.delete(id);
         return;
       }
@@ -361,6 +399,12 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       //     isRead: true,
       //   },
       //    ]);
+      // If the open conversation is this sender and window focused → mark read & ack
+      const openIp = selectedIpRef.current;
+      if (openIp && openIp === fromIP && document.hasFocus()) {
+        markThreadRead(fromIP);
+        sendSeen(fromIP);
+      }
     };
     (window as any).electronAPI.onTCPMessage(listener);
 
@@ -373,6 +417,28 @@ export function ChatPage({ currentUser }: ChatPageProps) {
       // }
     };
   }, []);
+
+  // ---- Auto mark read on focus or when messages in the open thread change ----
+  useEffect(() => {
+    const maybeMarkOpenThread = () => {
+      const ip = selectedContact?.ipAddress;
+      if (!ip) return;
+      const thread = messages[ip] || [];
+      const hasUnread = thread.some((m) => m.senderId !== "me" && !m.isRead);
+      if (hasUnread && document.hasFocus()) {
+        markThreadRead(ip);
+        sendSeen(ip);
+      }
+    };
+
+    // run on deps change
+    maybeMarkOpenThread();
+
+    // also run when window refocuses
+    const onFocus = () => maybeMarkOpenThread();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [messages, selectedContact]);
 
   const handleSendMessage = async (text: string) => {
     if (!selectedContact) return;
